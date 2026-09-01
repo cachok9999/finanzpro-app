@@ -1,0 +1,287 @@
+// Advanced Financial Intelligence and Calculation Engine
+
+export class FinancialEngine {
+  /**
+   * Calculates Total Assets, Total Liabilities, and Net Worth (Patrimonio Neto)
+   */
+  static calculateNetWorth(accounts) {
+    let assets = 0;
+    let liabilities = 0;
+
+    accounts.forEach(acc => {
+      if (acc.type === 'credit') {
+        // For credit cards, negative balance or absolute amount is liability
+        const debt = acc.balance < 0 ? Math.abs(acc.balance) : (acc.currentDebt || 0);
+        liabilities += debt;
+      } else if (acc.isAsset !== false && acc.balance >= 0) {
+        assets += acc.balance;
+      } else if (acc.balance < 0) {
+        liabilities += Math.abs(acc.balance);
+      }
+    });
+
+    const netWorth = assets - liabilities;
+    return {
+      assets,
+      liabilities,
+      netWorth,
+      debtToAssetRatio: assets > 0 ? ((liabilities / assets) * 100).toFixed(1) : 100
+    };
+  }
+
+  /**
+   * Calculates Monthly Cashflow (Income vs Expense vs Savings Rate)
+   */
+  static calculateMonthlyFlow(transactions, month = new Date().getMonth(), year = new Date().getFullYear()) {
+    let totalIncome = 0;
+    let totalExpense = 0;
+    const categorySpending = {};
+
+    transactions.forEach(t => {
+      const txDate = new Date(t.date);
+      if (txDate.getMonth() === month && txDate.getFullYear() === year) {
+        if (t.type === 'income') {
+          totalIncome += Number(t.amount) || 0;
+        } else if (t.type === 'expense') {
+          const amt = Number(t.amount) || 0;
+          totalExpense += amt;
+          categorySpending[t.categoryId] = (categorySpending[t.categoryId] || 0) + amt;
+        }
+      }
+    });
+
+    const netSavings = totalIncome - totalExpense;
+    const savingsRate = totalIncome > 0 ? Math.max(0, (netSavings / totalIncome) * 100) : 0;
+
+    return {
+      totalIncome,
+      totalExpense,
+      netSavings,
+      savingsRate: Number(savingsRate.toFixed(1)),
+      categorySpending
+    };
+  }
+
+  /**
+   * Evaluates spending against the 50/30/20 Rule:
+   * 50% Needs (Necesidades), 30% Wants (Deseos), 20% Savings/Investments/Debt Payoff (Ahorro/Deuda)
+   */
+  static calculate50_30_20(transactions, categories, month = new Date().getMonth(), year = new Date().getFullYear()) {
+    const categoryBucketMap = new Map(categories.map(c => [c.id, c.bucket || 'wants']));
+    
+    let needs = 0;
+    let wants = 0;
+    let savings = 0;
+    let income = 0;
+
+    transactions.forEach(t => {
+      const d = new Date(t.date);
+      if (d.getMonth() === month && d.getFullYear() === year) {
+        const amt = Number(t.amount) || 0;
+        if (t.type === 'income') {
+          income += amt;
+        } else if (t.type === 'expense') {
+          const bucket = categoryBucketMap.get(t.categoryId) || 'wants';
+          if (bucket === 'needs') needs += amt;
+          else if (bucket === 'wants') wants += amt;
+          else if (bucket === 'savings') savings += amt;
+          else wants += amt;
+        }
+      }
+    });
+
+    const totalSpent = needs + wants + savings;
+    const baseTotal = income > 0 ? income : (totalSpent > 0 ? totalSpent : 1);
+
+    const needsPct = Number(((needs / baseTotal) * 100).toFixed(1));
+    const wantsPct = Number(((wants / baseTotal) * 100).toFixed(1));
+    const savingsPct = Number(((savings / baseTotal) * 100).toFixed(1));
+
+    let advice = 'Tu distribución de gastos está equilibrada.';
+    let status = 'good';
+
+    if (needsPct > 55) {
+      advice = 'Tus necesidades básicas superan el 50%. Revisa gastos fijos y servicios.';
+      status = 'warning';
+    } else if (wantsPct > 35) {
+      advice = 'Tus gastos discrecionales (deseos) exceden el 30%. Modera salidas y compras.';
+      status = 'warning';
+    } else if (savingsPct < 15 && income > 0) {
+      advice = 'Intenta destinar al menos el 20% hacia ahorro, inversiones o pago de deudas.';
+      status = 'info';
+    }
+
+    return {
+      income,
+      needs: { amount: needs, percentage: needsPct, targetPct: 50 },
+      wants: { amount: wants, percentage: wantsPct, targetPct: 30 },
+      savings: { amount: savings, percentage: savingsPct, targetPct: 20 },
+      advice,
+      status
+    };
+  }
+
+  /**
+   * Calculates Runway (Months of Emergency Fund)
+   */
+  static calculateEmergencyRunway(liquidSavings, monthlyAverageExpense) {
+    if (!monthlyAverageExpense || monthlyAverageExpense <= 0) return 12;
+    const runwayMonths = liquidSavings / monthlyAverageExpense;
+    return Number(runwayMonths.toFixed(1));
+  }
+
+  /**
+   * Calculates Financial Health Score (0 to 100)
+   */
+  static calculateFinancialHealthScore({ savingsRate, runwayMonths, debtToAssetRatio, budgetAdherencePct }) {
+    let score = 0;
+
+    // Factor 1: Tasa de Ahorro (Max 30 pts)
+    // 20%+ -> 30 pts; 10-19% -> 20 pts; 0-9% -> 10 pts; negative -> 0 pts
+    if (savingsRate >= 20) score += 30;
+    else if (savingsRate >= 10) score += 20;
+    else if (savingsRate > 0) score += 10;
+
+    // Factor 2: Fondo de Emergencia / Runway (Max 30 pts)
+    // 6+ meses -> 30 pts; 3-5 meses -> 20 pts; 1-2 meses -> 10 pts; <1 mes -> 5 pts
+    if (runwayMonths >= 6) score += 30;
+    else if (runwayMonths >= 3) score += 20;
+    else if (runwayMonths >= 1) score += 10;
+    else score += 5;
+
+    // Factor 3: Nivel de Endeudamiento (Max 25 pts)
+    // < 20% -> 25 pts; 20-40% -> 18 pts; 40-60% -> 10 pts; > 60% -> 0 pts
+    if (debtToAssetRatio < 20) score += 25;
+    else if (debtToAssetRatio < 40) score += 18;
+    else if (debtToAssetRatio < 60) score += 10;
+    else score += 0;
+
+    // Factor 4: Cumplimiento de Presupuestos (Max 15 pts)
+    if (budgetAdherencePct >= 90) score += 15;
+    else if (budgetAdherencePct >= 70) score += 10;
+    else score += 5;
+
+    let grade = 'Excelente';
+    let color = '#10B981'; // Emerald
+    let recommendation = '¡Excelente gestión! Tus finanzas son sólidas y resilientes.';
+
+    if (score < 50) {
+      grade = 'Crítico';
+      color = '#F43F5E';
+      recommendation = 'Prioridad: Reduce deudas caras y construye un fondo de emergencia mínimo.';
+    } else if (score < 75) {
+      grade = 'En Progreso';
+      color = '#F59E0B';
+      recommendation = 'Buen camino. Incrementa tu tasa de ahorro hacia el 20% e invierte el excedente.';
+    } else if (score >= 90) {
+      grade = 'Libertad Financiera';
+      color = '#6366F1';
+      recommendation = 'Nivel maestro. Enfócate en maximizar rendimientos de inversión pasiva.';
+    }
+
+    return { score, grade, color, recommendation };
+  }
+
+  /**
+   * Simulates Debt Payoff: Snowball (Bola de Nieve) vs Avalanche (Avalancha)
+   */
+  static simulateDebtPayoff(debts, extraMonthlyPayment = 0) {
+    if (!debts || debts.length === 0) {
+      return { avalanche: { months: 0, totalInterest: 0 }, snowball: { months: 0, totalInterest: 0 } };
+    }
+
+    const simulate = (list) => {
+      // Deep clone debts
+      let workingDebts = list.map(d => ({
+        ...d,
+        balance: Number(d.totalAmount) || 0,
+        rate: (Number(d.interestRate) || 0) / 100 / 12,
+        minPay: Number(d.minimumPayment) || 20
+      }));
+
+      let months = 0;
+      let totalInterest = 0;
+      const maxMonths = 360; // 30 years limit
+
+      while (workingDebts.some(d => d.balance > 0) && months < maxMonths) {
+        months++;
+        let availableExtra = Number(extraMonthlyPayment) || 0;
+
+        // Apply interest and minimum payments
+        for (let debt of workingDebts) {
+          if (debt.balance <= 0) continue;
+
+          const monthlyInterest = debt.balance * debt.rate;
+          totalInterest += monthlyInterest;
+          debt.balance += monthlyInterest;
+
+          const payment = Math.min(debt.balance, debt.minPay);
+          debt.balance -= payment;
+        }
+
+        // Apply extra payment to target priority debt
+        for (let debt of workingDebts) {
+          if (debt.balance > 0 && availableExtra > 0) {
+            const extraPay = Math.min(debt.balance, availableExtra);
+            debt.balance -= extraPay;
+            availableExtra -= extraPay;
+          }
+        }
+      }
+
+      return {
+        months,
+        years: (months / 12).toFixed(1),
+        totalInterest: Math.round(totalInterest)
+      };
+    };
+
+    // Avalanche: Highest interest rate first
+    const avalancheList = [...debts].sort((a, b) => (b.interestRate || 0) - (a.interestRate || 0));
+    const avalancheResult = simulate(avalancheList);
+
+    // Snowball: Lowest balance first
+    const snowballList = [...debts].sort((a, b) => (a.totalAmount || 0) - (b.totalAmount || 0));
+    const snowballResult = simulate(snowballList);
+
+    const interestSaved = Math.max(0, snowballResult.totalInterest - avalancheResult.totalInterest);
+
+    return {
+      avalanche: avalancheResult,
+      snowball: snowballResult,
+      interestSaved
+    };
+  }
+
+  /**
+   * Cash Flow Projection for 30 Days
+   */
+  static projectCashflow(currentLiquidBalance, recurringTransactions, daysAhead = 30) {
+    const dailyPoints = [];
+    let runningBalance = currentLiquidBalance;
+    const today = new Date();
+
+    for (let day = 0; day <= daysAhead; day++) {
+      const checkDate = new Date();
+      checkDate.setDate(today.getDate() + day);
+
+      // Check recurring items scheduled for this day of the month
+      recurringTransactions.forEach(t => {
+        const txDate = new Date(t.date);
+        if (txDate.getDate() === checkDate.getDate()) {
+          if (t.type === 'income') runningBalance += Number(t.amount) || 0;
+          else if (t.type === 'expense') runningBalance -= Number(t.amount) || 0;
+        }
+      });
+
+      dailyPoints.push({
+        dayIndex: day,
+        date: checkDate.toISOString().slice(0, 10),
+        displayDate: checkDate.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' }),
+        balance: runningBalance
+      });
+    }
+
+    return dailyPoints;
+  }
+}

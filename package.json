@@ -1,0 +1,24 @@
+{
+  "name": "finanzpro-app",
+  "version": "1.0.0",
+  "description": "App Android de Finanzas Personales Profesionales",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "build": "node scripts/build.js",
+    "cap:add": "npx cap add android",
+    "cap:sync": "npx cap sync android",
+    "cap:open": "npx cap open android",
+    "cap:build": "npx cap build android"
+  },
+  "keywords": [
+    "finance",
+    "android",
+    "pwa",
+    "personal-finance",
+    "fintech",
+    "budget"
+  ],
+  "author": "FinanzPro Team",
+  "license": "MIT"
+}
