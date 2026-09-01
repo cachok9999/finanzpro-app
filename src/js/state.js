@@ -80,17 +80,40 @@ class StateManager {
 
     newTx.amount = Number(newTx.amount) || 0;
 
-    // Apply effect to Account Balance
-    const account = this.state.accounts.find(a => a.id === newTx.accountId);
-    if (account) {
-      if (newTx.type === 'income') {
-        account.balance += newTx.amount;
-      } else if (newTx.type === 'expense') {
-        account.balance -= newTx.amount;
-      } else if (newTx.type === 'transfer' && newTx.toAccountId) {
-        account.balance -= newTx.amount;
-        const targetAcc = this.state.accounts.find(a => a.id === newTx.toAccountId);
-        if (targetAcc) targetAcc.balance += newTx.amount;
+    // Ensure accounts list exists and is not empty
+    if (!this.state.accounts || !Array.isArray(this.state.accounts) || this.state.accounts.length === 0) {
+      this.state.accounts = [{
+        id: 'acc_main',
+        name: 'Cuenta Principal (Efectivo / Banco)',
+        type: 'checking',
+        balance: 0,
+        currency: this.state.settings?.currency || 'USD',
+        color: '#3B82F6',
+        icon: 'wallet',
+        isAsset: true
+      }];
+    }
+
+    // Find account to update or fallback to primary account
+    let account = this.state.accounts.find(a => a.id === newTx.accountId);
+    if (!account) {
+      account = this.state.accounts[0];
+      newTx.accountId = account.id;
+    }
+
+    // Force numerical casting to prevent string concatenation bugs
+    account.balance = Number(account.balance) || 0;
+
+    if (newTx.type === 'income') {
+      account.balance += newTx.amount;
+    } else if (newTx.type === 'expense') {
+      account.balance -= newTx.amount;
+    } else if (newTx.type === 'transfer' && newTx.toAccountId) {
+      account.balance -= newTx.amount;
+      let targetAcc = this.state.accounts.find(a => a.id === newTx.toAccountId);
+      if (targetAcc) {
+        targetAcc.balance = Number(targetAcc.balance) || 0;
+        targetAcc.balance += newTx.amount;
       }
     }
 
@@ -103,17 +126,22 @@ class StateManager {
     const tx = this.state.transactions.find(t => t.id === id);
     if (!tx) return;
 
-    // Reverse balance effect
+    // Reverse balance effect with guaranteed numerical casting
     const account = this.state.accounts.find(a => a.id === tx.accountId);
     if (account) {
+      account.balance = Number(account.balance) || 0;
+      const amt = Number(tx.amount) || 0;
       if (tx.type === 'income') {
-        account.balance -= tx.amount;
+        account.balance -= amt;
       } else if (tx.type === 'expense') {
-        account.balance += tx.amount;
+        account.balance += amt;
       } else if (tx.type === 'transfer' && tx.toAccountId) {
-        account.balance += tx.amount;
+        account.balance += amt;
         const targetAcc = this.state.accounts.find(a => a.id === tx.toAccountId);
-        if (targetAcc) targetAcc.balance -= tx.amount;
+        if (targetAcc) {
+          targetAcc.balance = Number(targetAcc.balance) || 0;
+          targetAcc.balance -= amt;
+        }
       }
     }
 
@@ -310,7 +338,18 @@ class StateManager {
 
   clearAllData() {
     this.state = {
-      accounts: [],
+      accounts: [
+        {
+          id: 'acc_main',
+          name: 'Billetera Principal (Efectivo / Banco)',
+          type: 'checking',
+          balance: 0.00,
+          currency: this.state.settings?.currency || 'USD',
+          color: '#3B82F6',
+          icon: 'wallet',
+          isAsset: true
+        }
+      ],
       categories: INITIAL_CATEGORIES,
       transactions: [],
       budgets: [],

@@ -74,8 +74,18 @@ export function renderDashboard(container) {
           ${mask(formatMoney(netWorthData.netWorth, currency))}
         </div>
 
+        <!-- Available Liquid Money Pill -->
+        <div class="flex items-center justify-between bg-slate-900/80 rounded-xl px-3 py-2 border border-slate-700/40 my-2 text-xs">
+          <span class="text-slate-300 font-medium flex items-center gap-1.5">
+            <i data-lucide="wallet" class="w-3.5 h-3.5 text-cyan-400"></i> Dinero Disponible (Líquido)
+          </span>
+          <span class="font-bold text-cyan-400 font-mono">
+            ${mask(formatMoney(liquidSavings, currency))}
+          </span>
+        </div>
+
         <!-- Breakdown Activos vs Pasivos -->
-        <div class="grid grid-cols-2 gap-3 mt-4 pt-3 border-t border-slate-800/80 text-xs">
+        <div class="grid grid-cols-2 gap-3 mt-3 pt-3 border-t border-slate-800/80 text-xs">
           <div class="bg-slate-900/60 rounded-xl p-2.5 border border-emerald-500/10">
             <span class="text-slate-400 block text-[11px]">Activos Totales</span>
             <span class="text-emerald-400 font-bold font-mono text-sm">
@@ -91,7 +101,7 @@ export function renderDashboard(container) {
         </div>
       </div>
 
-      <!-- Quick Metrics Row: Monthly Income vs Expenses -->
+      <!-- Quick Metrics Row: Monthly Income vs Expenses vs Net Flow -->
       <div class="grid grid-cols-2 gap-3">
         <!-- Ingresos Mes -->
         <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-3.5 relative overflow-hidden">
@@ -119,7 +129,7 @@ export function renderDashboard(container) {
             -${mask(formatMoney(monthlyFlow.totalExpense, currency))}
           </div>
           <span class="text-[10px] text-slate-500 block mt-1">
-            Tasa Ahorro: <span class="text-indigo-300 font-bold">${monthlyFlow.savingsRate}%</span>
+            Flujo Neto: <strong class="${monthlyFlow.netSavings >= 0 ? 'text-emerald-400' : 'text-rose-400'} font-mono">${mask(formatMoney(monthlyFlow.netSavings, currency))}</strong>
           </span>
         </div>
       </div>

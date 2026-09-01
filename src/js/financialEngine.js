@@ -4,19 +4,20 @@ export class FinancialEngine {
   /**
    * Calculates Total Assets, Total Liabilities, and Net Worth (Patrimonio Neto)
    */
-  static calculateNetWorth(accounts) {
+  static calculateNetWorth(accounts = []) {
     let assets = 0;
     let liabilities = 0;
 
-    accounts.forEach(acc => {
+    (accounts || []).forEach(acc => {
+      const bal = Number(acc.balance) || 0;
       if (acc.type === 'credit') {
         // For credit cards, negative balance or absolute amount is liability
-        const debt = acc.balance < 0 ? Math.abs(acc.balance) : (acc.currentDebt || 0);
+        const debt = bal < 0 ? Math.abs(bal) : (Number(acc.currentDebt) || 0);
         liabilities += debt;
-      } else if (acc.isAsset !== false && acc.balance >= 0) {
-        assets += acc.balance;
-      } else if (acc.balance < 0) {
-        liabilities += Math.abs(acc.balance);
+      } else if (acc.isAsset !== false && bal >= 0) {
+        assets += bal;
+      } else if (bal < 0) {
+        liabilities += Math.abs(bal);
       }
     });
 
@@ -25,25 +26,25 @@ export class FinancialEngine {
       assets,
       liabilities,
       netWorth,
-      debtToAssetRatio: assets > 0 ? ((liabilities / assets) * 100).toFixed(1) : 100
+      debtToAssetRatio: assets > 0 ? Number(((liabilities / assets) * 100).toFixed(1)) : (liabilities > 0 ? 100 : 0)
     };
   }
 
   /**
    * Calculates Monthly Cashflow (Income vs Expense vs Savings Rate)
    */
-  static calculateMonthlyFlow(transactions, month = new Date().getMonth(), year = new Date().getFullYear()) {
+  static calculateMonthlyFlow(transactions = [], month = new Date().getMonth(), year = new Date().getFullYear()) {
     let totalIncome = 0;
     let totalExpense = 0;
     const categorySpending = {};
 
-    transactions.forEach(t => {
+    (transactions || []).forEach(t => {
       const txDate = new Date(t.date);
-      if (txDate.getMonth() === month && txDate.getFullYear() === year) {
+      if (!isNaN(txDate.getTime()) && txDate.getMonth() === month && txDate.getFullYear() === year) {
+        const amt = Number(t.amount) || 0;
         if (t.type === 'income') {
-          totalIncome += Number(t.amount) || 0;
+          totalIncome += amt;
         } else if (t.type === 'expense') {
-          const amt = Number(t.amount) || 0;
           totalExpense += amt;
           categorySpending[t.categoryId] = (categorySpending[t.categoryId] || 0) + amt;
         }
