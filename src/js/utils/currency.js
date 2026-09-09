@@ -41,32 +41,52 @@ export function formatCompactNumber(amount, currencyCode = 'USD') {
   return formatMoney(num, currencyCode, false);
 }
 
+export const TIMEZONE_GMT3 = 'America/Argentina/Buenos_Aires';
+
 export function formatDate(dateString, formatType = 'medium') {
   if (!dateString) return '';
   const date = new Date(dateString);
   if (isNaN(date.getTime())) return dateString;
 
+  const tzOptions = { timeZone: TIMEZONE_GMT3 };
+
   if (formatType === 'short') {
-    return date.toLocaleDateString('es-ES', { day: '2-digit', month: 'short' });
+    return date.toLocaleDateString('es-ES', { day: '2-digit', month: 'short', ...tzOptions });
   }
   if (formatType === 'time') {
-    return date.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+    return date.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', hour12: false, ...tzOptions }) + ' (GMT-3)';
+  }
+  if (formatType === 'datetime') {
+    const dStr = date.toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric', ...tzOptions });
+    const tStr = date.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', hour12: false, ...tzOptions });
+    return `${dStr} ${tStr} (GMT-3)`;
   }
   if (formatType === 'relative') {
-    const today = new Date();
-    const isToday = date.toDateString() === today.toDateString();
-    const yesterday = new Date();
-    yesterday.setDate(today.getDate() - 1);
-    const isYesterday = date.toDateString() === yesterday.toDateString();
-    
-    if (isToday) return 'Hoy';
-    if (isYesterday) return 'Ayer';
-    return date.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
+    const dStr = date.toLocaleDateString('es-ES', { day: 'numeric', month: 'short', ...tzOptions });
+    const tStr = date.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', hour12: false, ...tzOptions });
+    return `${dStr} • ${tStr} (GMT-3)`;
   }
 
-  return date.toLocaleDateString('es-ES', {
+  const dStr = date.toLocaleDateString('es-ES', {
     day: 'numeric',
     month: 'short',
-    year: 'numeric'
+    year: 'numeric',
+    ...tzOptions
   });
+  const tStr = date.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', hour12: false, ...tzOptions });
+  return `${dStr} ${tStr} (GMT-3)`;
+}
+
+export function getNowGMT3String() {
+  const now = new Date();
+  const formatter = new Intl.DateTimeFormat('sv-SE', {
+    timeZone: TIMEZONE_GMT3,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  });
+  return formatter.format(now).replace(' ', 'T');
 }

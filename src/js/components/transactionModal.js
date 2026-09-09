@@ -1,6 +1,6 @@
 // Transaction Modal - Comprehensive Detail Entry
 import { store } from '../state.js';
-import { formatMoney } from '../utils/currency.js';
+import { formatMoney, getNowGMT3String } from '../utils/currency.js';
 
 export class TransactionModal {
   constructor() {
@@ -62,7 +62,7 @@ export class TransactionModal {
     const isIncome = this.currentType === 'income';
 
     const categories = state.categories.filter(c => c.type === (isIncome ? 'income' : 'expense'));
-    const nowIso = new Date().toISOString().slice(0, 16);
+    const nowIso = getNowGMT3String();
 
     this.sheet.innerHTML = `
       <div class="p-4 border-b border-slate-800 flex items-center justify-between">

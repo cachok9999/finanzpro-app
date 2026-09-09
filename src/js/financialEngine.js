@@ -285,4 +285,124 @@ export class FinancialEngine {
 
     return dailyPoints;
   }
+
+  /**
+   * Generates a comprehensive breakdown of expenses & income with amounts, percentages, transaction counts,
+   * top categories, average tickets, and diagnostics for any selected period.
+   */
+  static generateDetailedReport(transactions = [], categories = [], filterPeriod = 'this_month') {
+    const now = new Date();
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
+
+    // Filter transactions by period
+    const filteredTxs = (transactions || []).filter(t => {
+      const d = new Date(t.date);
+      if (isNaN(d.getTime())) return false;
+
+      if (filterPeriod === 'this_month') {
+        return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+      }
+      if (filterPeriod === 'prev_month') {
+        const prevMonth = currentMonth === 0 ? 11 : currentMonth - 1;
+        const prevYear = currentMonth === 0 ? currentYear - 1 : currentYear;
+        return d.getMonth() === prevMonth && d.getFullYear() === prevYear;
+      }
+      if (filterPeriod === 'last_3_months') {
+        const threeMonthsAgo = new Date();
+        threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+        return d >= threeMonthsAgo;
+      }
+      if (filterPeriod === 'all') {
+        return true;
+      }
+      return true;
+    });
+
+    const categoryMap = new Map(categories.map(c => [c.id, c]));
+
+    let totalExpense = 0;
+    let totalIncome = 0;
+
+    const expenseAgg = {};
+    const incomeAgg = {};
+
+    filteredTxs.forEach(t => {
+      const amt = Number(t.amount) || 0;
+      if (t.type === 'expense') {
+        totalExpense += amt;
+        const catId = t.categoryId || 'cat_otros';
+        if (!expenseAgg[catId]) expenseAgg[catId] = { amount: 0, count: 0 };
+        expenseAgg[catId].amount += amt;
+        expenseAgg[catId].count += 1;
+      } else if (t.type === 'income') {
+        totalIncome += amt;
+        const catId = t.categoryId || 'cat_otros';
+        if (!incomeAgg[catId]) incomeAgg[catId] = { amount: 0, count: 0 };
+        incomeAgg[catId].amount += amt;
+        incomeAgg[catId].count += 1;
+      }
+    });
+
+    const buildBreakdown = (aggObj, totalSum) => {
+      return Object.entries(aggObj).map(([catId, data]) => {
+        const cat = categoryMap.get(catId) || {
+          id: catId,
+          name: 'Sin categoría / Otros',
+          color: '#64748B',
+          icon: 'tag',
+          bucket: 'wants'
+        };
+        const percentage = totalSum > 0 ? Number(((data.amount / totalSum) * 100).toFixed(1)) : 0;
+        const avgTicket = data.count > 0 ? Number((data.amount / data.count).toFixed(2)) : 0;
+
+        return {
+          categoryId: catId,
+          name: cat.name,
+          color: cat.color || '#6366F1',
+          icon: cat.icon || 'tag',
+          bucket: cat.bucket || 'wants',
+          amount: data.amount,
+          count: data.count,
+          percentage,
+          avgTicket
+        };
+      }).sort((a, b) => b.amount - a.amount);
+    };
+
+    const expenseBreakdown = buildBreakdown(expenseAgg, totalExpense);
+    const incomeBreakdown = buildBreakdown(incomeAgg, totalIncome);
+
+    const netSavings = totalIncome - totalExpense;
+    const savingsRate = totalIncome > 0 ? Math.max(0, Number(((netSavings / totalIncome) * 100).toFixed(1))) : 0;
+
+    let daysCount = 30;
+    if (filterPeriod === 'this_month') daysCount = Math.max(1, now.getDate());
+    else if (filterPeriod === 'last_3_months') daysCount = 90;
+
+    const dailyExpenseAvg = totalExpense > 0 ? Number((totalExpense / daysCount).toFixed(2)) : 0;
+    const dailyIncomeAvg = totalIncome > 0 ? Number((totalIncome / daysCount).toFixed(2)) : 0;
+
+    const expenseTxs = filteredTxs.filter(t => t.type === 'expense');
+    const incomeTxs = filteredTxs.filter(t => t.type === 'income');
+
+    return {
+      filterPeriod,
+      totalExpense,
+      totalIncome,
+      netSavings,
+      savingsRate,
+      expenseCount: expenseTxs.length,
+      incomeCount: incomeTxs.length,
+      avgExpenseTicket: expenseTxs.length > 0 ? Number((totalExpense / expenseTxs.length).toFixed(2)) : 0,
+      avgIncomeTicket: incomeTxs.length > 0 ? Number((totalIncome / incomeTxs.length).toFixed(2)) : 0,
+      dailyExpenseAvg,
+      dailyIncomeAvg,
+      topExpense: expenseBreakdown[0] || null,
+      topIncome: incomeBreakdown[0] || null,
+      expenseBreakdown,
+      incomeBreakdown,
+      filteredTxs
+    };
+  }
 }

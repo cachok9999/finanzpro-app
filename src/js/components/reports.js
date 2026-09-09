@@ -1,11 +1,14 @@
-// Analytics & Financial Reports Component
+// Analytics & Financial Reports Component - Detailed Category Breakdown & Insights
 import { store } from '../state.js';
 import { FinancialEngine } from '../financialEngine.js';
 import { formatMoney, formatCompactNumber } from '../utils/currency.js';
 import { exportToCSV, exportFullBackupJSON } from '../utils/exporter.js';
 
-let chartInstance1 = null;
-let chartInstance2 = null;
+let chartInstance = null;
+let forecastChartInstance = null;
+
+let currentTab = 'expense'; // 'expense' | 'income' | 'flow'
+let currentPeriod = 'this_month'; // 'this_month' | 'prev_month' | 'last_3_months' | 'all'
 
 export function renderReports(container) {
   const state = store.getState();
@@ -13,128 +16,325 @@ export function renderReports(container) {
   const hideBalances = state.settings.hideBalances;
   const mask = (val) => hideBalances ? '••••••' : val;
 
-  const currentMonth = new Date().getMonth();
-  const currentYear = new Date().getFullYear();
-  const monthlyFlow = FinancialEngine.calculateMonthlyFlow(state.transactions, currentMonth, currentYear);
+  // Generate detailed report data based on current period
+  const report = FinancialEngine.generateDetailedReport(state.transactions, state.categories, currentPeriod);
   const netWorthData = FinancialEngine.calculateNetWorth(state.accounts);
 
-  // Group expenses by category
-  const categoryMap = new Map(state.categories.map(c => [c.id, c]));
-  const expenseData = [];
-  const labels = [];
-  const colors = [];
+  const activeBreakdown = currentTab === 'income' ? report.incomeBreakdown : report.expenseBreakdown;
+  const currentTotal = currentTab === 'income' ? report.totalIncome : report.totalExpense;
 
-  Object.entries(monthlyFlow.categorySpending).forEach(([catId, amount]) => {
-    const cat = categoryMap.get(catId) || { name: 'Otros', color: '#94A3B8' };
-    if (amount > 0) {
-      labels.push(cat.name);
-      expenseData.push(amount);
-      colors.push(cat.color || '#6366F1');
-    }
-  });
+  // Prepare chart data
+  const labels = activeBreakdown.map(c => c.name);
+  const chartData = activeBreakdown.map(c => c.amount);
+  const colors = activeBreakdown.map(c => c.color);
 
   container.innerHTML = `
-    <div class="space-y-4 pb-24 animate-fadeIn">
+    <div class="space-y-4 pb-28 animate-fadeIn">
       
-      <!-- Top Title & Export -->
+      <!-- Top Title & Quick Actions -->
       <div class="flex items-center justify-between pt-2 px-1">
         <div>
-          <span class="text-xs font-semibold text-indigo-400 uppercase tracking-wider">Inteligencia y Auditoría</span>
-          <h1 class="text-2xl font-extrabold text-slate-100">Analítica Financiera</h1>
+          <span class="text-xs font-semibold text-indigo-400 uppercase tracking-wider">Auditoría & Analítica</span>
+          <h1 class="text-2xl font-extrabold text-slate-100">Reportes Detallados</h1>
         </div>
         <div class="flex items-center gap-1.5">
-          <button id="btn-export-all-csv" class="p-2 rounded-xl bg-slate-800 text-slate-300 hover:text-white border border-slate-700" title="Exportar CSV">
-            <i data-lucide="file-spreadsheet" class="w-5 h-5 text-emerald-400"></i>
+          <button id="btn-export-detailed-csv" class="flex items-center gap-1 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700 transition" title="Exportar Reporte a CSV / Excel">
+            <i data-lucide="file-spreadsheet" class="w-4 h-4 text-emerald-400"></i>
+            <span>CSV</span>
           </button>
           <button id="btn-export-backup-json" class="p-2 rounded-xl bg-slate-800 text-slate-300 hover:text-white border border-slate-700" title="Copia de Seguridad JSON">
-            <i data-lucide="database" class="w-5 h-5 text-indigo-400"></i>
+            <i data-lucide="database" class="w-4 h-4 text-indigo-400"></i>
           </button>
         </div>
       </div>
 
-      <!-- Financial Health Snapshot -->
-      <div class="grid grid-cols-3 gap-2">
-        <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-3 text-center">
-          <span class="text-[10px] text-slate-400 uppercase block font-semibold">Tasa de Ahorro</span>
-          <span class="text-base font-extrabold text-emerald-400 font-mono">${monthlyFlow.savingsRate}%</span>
-        </div>
-        <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-3 text-center">
-          <span class="text-[10px] text-slate-400 uppercase block font-semibold">Endeudamiento</span>
-          <span class="text-base font-extrabold text-amber-400 font-mono">${netWorthData.debtToAssetRatio}%</span>
-        </div>
-        <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-3 text-center">
-          <span class="text-[10px] text-slate-400 uppercase block font-semibold">Ahorro Neto</span>
-          <span class="text-base font-extrabold text-indigo-400 font-mono">${mask(formatCompactNumber(monthlyFlow.netSavings, currency))}</span>
-        </div>
+      <!-- Timezone indicator & Data safety tip -->
+      <div class="flex items-center justify-between px-3 py-2 bg-indigo-950/40 border border-indigo-800/30 rounded-2xl text-[11px] text-slate-300">
+        <span class="flex items-center gap-1.5">
+          <i data-lucide="clock" class="w-3.5 h-3.5 text-indigo-400"></i>
+          <span>Horario sincronizado: <strong class="text-indigo-300 font-mono">GMT-3</strong></span>
+        </span>
+        <span class="flex items-center gap-1 text-emerald-400">
+          <i data-lucide="shield-check" class="w-3.5 h-3.5"></i> Datos 100% seguros
+        </span>
       </div>
 
-      <!-- Category Donut Chart -->
-      <div class="bg-slate-900/90 border border-slate-800 rounded-3xl p-5 shadow-lg">
-        <h3 class="text-xs font-bold text-slate-300 uppercase tracking-wider mb-4 flex items-center gap-1.5">
-          <i data-lucide="pie-chart" class="w-4 h-4 text-indigo-400"></i> Desglose de Gastos por Categoría
-        </h3>
-        
-        ${expenseData.length === 0 ? `
-          <div class="p-8 text-center text-slate-500 text-xs">No hay gastos registrados este mes.</div>
-        ` : `
-          <div class="relative h-56 flex items-center justify-center">
-            <canvas id="category-donut-chart"></canvas>
-          </div>
-        `}
+      <!-- Period Filter Selector -->
+      <div class="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
+        <button data-period="this_month" class="period-btn shrink-0 px-3 py-1.5 rounded-xl text-xs font-bold transition border ${currentPeriod === 'this_month' ? 'bg-indigo-600 border-indigo-500 text-white shadow-md' : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'}">
+          Este Mes
+        </button>
+        <button data-period="prev_month" class="period-btn shrink-0 px-3 py-1.5 rounded-xl text-xs font-bold transition border ${currentPeriod === 'prev_month' ? 'bg-indigo-600 border-indigo-500 text-white shadow-md' : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'}">
+          Mes Anterior
+        </button>
+        <button data-period="last_3_months" class="period-btn shrink-0 px-3 py-1.5 rounded-xl text-xs font-bold transition border ${currentPeriod === 'last_3_months' ? 'bg-indigo-600 border-indigo-500 text-white shadow-md' : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'}">
+          Últimos 3 Meses
+        </button>
+        <button data-period="all" class="period-btn shrink-0 px-3 py-1.5 rounded-xl text-xs font-bold transition border ${currentPeriod === 'all' ? 'bg-indigo-600 border-indigo-500 text-white shadow-md' : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'}">
+          Histórico Completo
+        </button>
       </div>
 
-      <!-- Cashflow Forecast Chart (30 Days Ahead) -->
-      <div class="bg-slate-900/90 border border-slate-800 rounded-3xl p-5 shadow-lg">
-        <h3 class="text-xs font-bold text-slate-300 uppercase tracking-wider mb-1 flex items-center gap-1.5">
-          <i data-lucide="trending-up" class="w-4 h-4 text-cyan-400"></i> Proyección de Flujo de Caja (30 Días)
-        </h3>
-        <p class="text-[11px] text-slate-500 mb-4">Simulación basada en tus gastos e ingresos fijos recurrentes</p>
-        
-        <div class="relative h-52">
-          <canvas id="cashflow-forecast-chart"></canvas>
+      <!-- Main Balance Summary Card for Selected Period -->
+      <div class="gradient-card-dark rounded-3xl p-5 shadow-2xl relative overflow-hidden">
+        <div class="flex items-center justify-between text-xs text-slate-400 mb-1">
+          <span class="font-bold uppercase tracking-wide flex items-center gap-1.5">
+            <i data-lucide="scale" class="w-4 h-4 text-indigo-400"></i> Resumen del Período
+          </span>
+          <span class="bg-indigo-500/20 text-indigo-300 px-2.5 py-0.5 rounded-full font-mono text-[11px]">
+            ${currency}
+          </span>
         </div>
-      </div>
 
-      <!-- Monthly P&L Ledger Summary -->
-      <div class="bg-slate-900/90 border border-slate-800 rounded-3xl p-5 space-y-3">
-        <h3 class="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
-          <i data-lucide="clipboard-list" class="w-4 h-4 text-indigo-400"></i> Estado de Resultados (P&L del Mes)
-        </h3>
+        <div class="grid grid-cols-2 gap-3 my-3">
+          <!-- Ingresos -->
+          <div class="bg-slate-900/60 rounded-2xl p-3 border border-emerald-500/15">
+            <span class="text-[11px] font-semibold text-slate-400 flex items-center gap-1">
+              <i data-lucide="arrow-down-left" class="w-3 h-3 text-emerald-400"></i> Ingresos Totales
+            </span>
+            <div class="text-lg font-extrabold text-emerald-400 num-mono mt-1">
+              +${mask(formatMoney(report.totalIncome, currency))}
+            </div>
+            <span class="text-[10px] text-slate-500">${report.incomeCount} operaciones</span>
+          </div>
 
-        <div class="space-y-2 text-xs divide-y divide-slate-800/80">
-          <div class="flex justify-between pt-2">
-            <span class="text-slate-400 font-medium">Ingresos Totales Brutos</span>
-            <span class="text-emerald-400 font-bold font-mono">+${mask(formatMoney(monthlyFlow.totalIncome, currency))}</span>
+          <!-- Gastos -->
+          <div class="bg-slate-900/60 rounded-2xl p-3 border border-rose-500/15">
+            <span class="text-[11px] font-semibold text-slate-400 flex items-center gap-1">
+              <i data-lucide="arrow-up-right" class="w-3 h-3 text-rose-400"></i> Gastos Totales
+            </span>
+            <div class="text-lg font-extrabold text-rose-400 num-mono mt-1">
+              -${mask(formatMoney(report.totalExpense, currency))}
+            </div>
+            <span class="text-[10px] text-slate-500">${report.expenseCount} operaciones</span>
           </div>
-          <div class="flex justify-between pt-2">
-            <span class="text-slate-400 font-medium">Gastos de Operación / Vida</span>
-            <span class="text-rose-400 font-bold font-mono">-${mask(formatMoney(monthlyFlow.totalExpense, currency))}</span>
-          </div>
-          <div class="flex justify-between pt-2 font-bold text-sm">
-            <span class="text-slate-200">Flujo Neto Excedente</span>
-            <span class="font-mono ${monthlyFlow.netSavings >= 0 ? 'text-emerald-400' : 'text-rose-400'}">
-              ${mask(formatMoney(monthlyFlow.netSavings, currency))}
+        </div>
+
+        <!-- Flujo Neto del Período -->
+        <div class="flex items-center justify-between bg-slate-950/80 rounded-2xl px-4 py-2.5 border border-slate-800">
+          <div>
+            <span class="text-[11px] text-slate-400 font-semibold block">Balance Neto (Ingresos - Gastos)</span>
+            <span class="text-base font-black num-mono ${report.netSavings >= 0 ? 'text-emerald-400' : 'text-rose-400'}">
+              ${report.netSavings >= 0 ? '+' : ''}${mask(formatMoney(report.netSavings, currency))}
             </span>
           </div>
+          <div class="text-right">
+            <span class="text-[10px] text-slate-400 font-semibold block">Tasa de Ahorro</span>
+            <span class="text-base font-extrabold text-indigo-300 font-mono">${report.savingsRate}%</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Quick Metrics Grid -->
+      <div class="grid grid-cols-3 gap-2 text-xs">
+        <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-3 text-center">
+          <span class="text-[10px] text-slate-400 uppercase font-semibold block">Gasto Diario Prom.</span>
+          <span class="text-sm font-extrabold text-rose-400 num-mono mt-0.5 block">
+            ${mask(formatMoney(report.dailyExpenseAvg, currency))}
+          </span>
+        </div>
+        <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-3 text-center">
+          <span class="text-[10px] text-slate-400 uppercase font-semibold block">Ticket Promedio</span>
+          <span class="text-sm font-extrabold text-slate-200 num-mono mt-0.5 block">
+            ${mask(formatMoney(report.avgExpenseTicket, currency))}
+          </span>
+        </div>
+        <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-3 text-center">
+          <span class="text-[10px] text-slate-400 uppercase font-semibold block">Top Categoría</span>
+          <span class="text-xs font-bold text-indigo-300 line-clamp-1 mt-0.5 block" title="${report.topExpense?.name || 'N/A'}">
+            ${report.topExpense?.name || 'N/A'}
+          </span>
+        </div>
+      </div>
+
+      <!-- Report View Tabs: Gastos vs Ingresos vs Flujo -->
+      <div class="grid grid-cols-3 gap-1.5 bg-slate-900/90 p-1.5 rounded-2xl border border-slate-800 text-xs">
+        <button data-tab="expense" class="tab-report-btn py-2 rounded-xl font-bold transition ${currentTab === 'expense' ? 'bg-rose-500 text-white shadow-md' : 'text-slate-400 hover:text-white'}">
+          Gastos (${report.expenseBreakdown.length})
+        </button>
+        <button data-tab="income" class="tab-report-btn py-2 rounded-xl font-bold transition ${currentTab === 'income' ? 'bg-emerald-500 text-white shadow-md' : 'text-slate-400 hover:text-white'}">
+          Ingresos (${report.incomeBreakdown.length})
+        </button>
+        <button data-tab="flow" class="tab-report-btn py-2 rounded-xl font-bold transition ${currentTab === 'flow' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-white'}">
+          Evolución & P&L
+        </button>
+      </div>
+
+      ${currentTab === 'flow' ? `
+        <!-- Cashflow Forecast & Evolution Chart -->
+        <div class="bg-slate-900/90 border border-slate-800 rounded-3xl p-5 shadow-lg space-y-3">
+          <div class="flex items-center justify-between">
+            <h3 class="text-xs font-bold text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+              <i data-lucide="trending-up" class="w-4 h-4 text-cyan-400"></i> Proyección de Flujo (Próximos 30 Días)
+            </h3>
+            <span class="text-[10px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full">Recurrentes</span>
+          </div>
+          <div class="relative h-56">
+            <canvas id="cashflow-forecast-chart"></canvas>
+          </div>
+        </div>
+
+        <!-- Monthly P&L Ledger Summary -->
+        <div class="bg-slate-900/90 border border-slate-800 rounded-3xl p-5 space-y-3">
+          <h3 class="text-xs font-bold text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+            <i data-lucide="clipboard-list" class="w-4 h-4 text-indigo-400"></i> Estado Financiero del Período
+          </h3>
+
+          <div class="space-y-2.5 text-xs divide-y divide-slate-800/80">
+            <div class="flex justify-between pt-2">
+              <span class="text-slate-400 font-medium">Ingresos Totales Brutos</span>
+              <span class="text-emerald-400 font-bold font-mono">+${mask(formatMoney(report.totalIncome, currency))}</span>
+            </div>
+            <div class="flex justify-between pt-2">
+              <span class="text-slate-400 font-medium">Gastos de Operación / Vida</span>
+              <span class="text-rose-400 font-bold font-mono">-${mask(formatMoney(report.totalExpense, currency))}</span>
+            </div>
+            <div class="flex justify-between pt-2 font-bold text-sm">
+              <span class="text-slate-200">Flujo Neto Disponible</span>
+              <span class="font-mono ${report.netSavings >= 0 ? 'text-emerald-400' : 'text-rose-400'}">
+                ${mask(formatMoney(report.netSavings, currency))}
+              </span>
+            </div>
+          </div>
+        </div>
+      ` : `
+        <!-- Donut Chart Card with Dynamic Center Total -->
+        <div class="bg-slate-900/90 border border-slate-800 rounded-3xl p-5 shadow-lg">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="text-xs font-bold text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+              <i data-lucide="pie-chart" class="w-4 h-4 text-indigo-400"></i> Distribución de ${currentTab === 'income' ? 'Ingresos' : 'Gastos'}
+            </h3>
+            <span class="text-xs font-extrabold num-mono ${currentTab === 'income' ? 'text-emerald-400' : 'text-rose-400'}">
+              ${mask(formatMoney(currentTotal, currency))}
+            </span>
+          </div>
+
+          ${activeBreakdown.length === 0 ? `
+            <div class="p-8 text-center text-slate-500 text-xs">
+              No hay ${currentTab === 'income' ? 'ingresos' : 'gastos'} registrados en este período.
+            </div>
+          ` : `
+            <div class="relative h-56 flex items-center justify-center">
+              <canvas id="category-donut-chart"></canvas>
+            </div>
+          `}
+        </div>
+
+        <!-- DETAILED CATEGORY LIST: MONTO + PORCENTAJE + BARRA + TICKETS -->
+        <div class="space-y-3">
+          <div class="flex items-center justify-between px-1">
+            <h3 class="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+              <i data-lucide="list-ordered" class="w-4 h-4 text-indigo-400"></i> Desglose Detallado por Categoría
+            </h3>
+            <span class="text-[11px] text-slate-500">Ordenado de mayor a menor</span>
+          </div>
+
+          ${activeBreakdown.length === 0 ? `
+            <div class="p-8 text-center bg-slate-900/60 rounded-3xl border border-slate-800 text-slate-500 text-xs">
+              No se encontraron registros para mostrar.
+            </div>
+          ` : activeBreakdown.map((item, idx) => {
+            let bucketBadge = '';
+            if (currentTab === 'expense') {
+              if (item.bucket === 'needs') bucketBadge = '<span class="text-[9px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 font-semibold">Necesidad (50%)</span>';
+              else if (item.bucket === 'wants') bucketBadge = '<span class="text-[9px] px-1.5 py-0.5 rounded bg-pink-500/20 text-pink-300 font-semibold">Deseo (30%)</span>';
+              else if (item.bucket === 'savings') bucketBadge = '<span class="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-semibold">Ahorro (20%)</span>';
+            }
+
+            return `
+              <div class="card-elevated p-4 bg-slate-900/90 border border-slate-800/90 hover:border-slate-700 transition space-y-2.5">
+                <!-- Top Row: Icon + Name + Percentage + Amount -->
+                <div class="flex items-center justify-between">
+                  <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-2xl flex items-center justify-center text-white shrink-0 shadow-sm" style="background: ${item.color}25; color: ${item.color}">
+                      <i data-lucide="${item.icon || 'tag'}" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                      <div class="flex items-center gap-1.5">
+                        <h4 class="text-xs font-extrabold text-slate-100">${item.name}</h4>
+                        ${bucketBadge}
+                      </div>
+                      <span class="text-[11px] text-slate-400 mt-0.5 block">
+                        ${item.count} mov. • Promedio: <strong class="text-slate-300 font-mono">${mask(formatMoney(item.avgTicket, currency))}</strong>
+                      </span>
+                    </div>
+                  </div>
+
+                  <!-- Percentage & Total Amount -->
+                  <div class="text-right">
+                    <div class="flex items-baseline justify-end gap-1.5">
+                      <span class="text-sm font-black num-mono ${currentTab === 'income' ? 'text-emerald-400' : 'text-rose-400'}">
+                        ${mask(formatMoney(item.amount, currency))}
+                      </span>
+                      <span class="text-xs font-black font-mono px-2 py-0.5 rounded-lg text-white" style="background: ${item.color}35; color: ${item.color}">
+                        ${item.percentage}%
+                      </span>
+                    </div>
+                    <span class="text-[10px] text-slate-500 block mt-0.5">
+                      del total de ${currentTab === 'income' ? 'ingresos' : 'gastos'}
+                    </span>
+                  </div>
+                </div>
+
+                <!-- Progress Bar matching Category Color -->
+                <div class="w-full h-2.5 bg-slate-950 rounded-full overflow-hidden p-0.5 border border-slate-800">
+                  <div class="h-full rounded-full transition-all duration-700" style="width: ${Math.max(3, item.percentage)}%; background-color: ${item.color}"></div>
+                </div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      `}
+
+      <!-- Financial Diagnosis & Actionable Insights -->
+      <div class="bg-indigo-950/40 border border-indigo-800/40 rounded-3xl p-5 space-y-2 text-xs">
+        <h4 class="font-bold text-indigo-300 flex items-center gap-1.5">
+          <i data-lucide="sparkles" class="w-4 h-4 text-amber-400"></i> Diagnóstico Financiero del Experto
+        </h4>
+        <div class="text-slate-300 leading-relaxed space-y-1.5 text-[11px]">
+          ${report.totalExpense > 0 ? `
+            <p>• <strong>Impacto Principal:</strong> Tu mayor categoría de gasto en este período es <strong>${report.topExpense?.name || 'General'}</strong> con <strong>${report.topExpense?.percentage}%</strong> (${mask(formatMoney(report.topExpense?.amount, currency))}).</p>
+            <p>• <strong>Tasa de Ahorro:</strong> Estás reteniendo el <strong>${report.savingsRate}%</strong> de tus ingresos. ${report.savingsRate >= 20 ? '¡Excelente! Cumples con la recomendación del 20% para inversión y patrimonio.' : 'Se recomienda recortar compras no esenciales para alcanzar al menos un 20% de ahorro mensual.'}</p>
+            <p>• <strong>Frecuencia:</strong> Registraste un promedio de gasto diario de <strong>${mask(formatMoney(report.dailyExpenseAvg, currency))}</strong> distribuido en ${report.expenseCount} transacciones.</p>
+          ` : `
+            <p>No se registran suficientes gastos en este período para generar un diagnóstico completo.</p>
+          `}
         </div>
       </div>
 
     </div>
   `;
 
+  // Attach Period button listeners
+  container.querySelectorAll('.period-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      currentPeriod = e.currentTarget.dataset.period;
+      renderReports(container);
+    });
+  });
+
+  // Attach Tab button listeners
+  container.querySelectorAll('.tab-report-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      currentTab = e.currentTarget.dataset.tab;
+      renderReports(container);
+    });
+  });
+
   // Render Charts
   setTimeout(() => {
-    initCharts(container, labels, expenseData, colors, state, currency);
-  }, 100);
+    initReportsCharts(container, labels, chartData, colors, state, currency, currentTab);
+  }, 80);
 
-  // Attach Exports
-  const btnCsv = container.querySelector('#btn-export-all-csv');
+  // Attach Detailed CSV Export
+  const btnCsv = container.querySelector('#btn-export-detailed-csv');
   if (btnCsv) {
     btnCsv.addEventListener('click', () => {
-      exportToCSV(state.transactions, state.categories, state.accounts);
+      exportDetailedReportToCSV(report, currency);
     });
   }
 
+  // Backup JSON
   const btnBackup = container.querySelector('#btn-export-backup-json');
   if (btnBackup) {
     btnBackup.addEventListener('click', () => {
@@ -147,15 +347,17 @@ export function renderReports(container) {
   }
 }
 
-function initCharts(container, labels, data, colors, state, currency) {
+function initReportsCharts(container, labels, data, colors, state, currency, tab) {
   if (typeof Chart === 'undefined') return;
 
   // 1. Donut Chart
   const donutCtx = container.querySelector('#category-donut-chart');
   if (donutCtx && data.length > 0) {
-    if (chartInstance1) chartInstance1.destroy();
+    if (chartInstance) chartInstance.destroy();
 
-    chartInstance1 = new Chart(donutCtx, {
+    const totalSum = data.reduce((a, b) => a + b, 0);
+
+    chartInstance = new Chart(donutCtx, {
       type: 'doughnut',
       data: {
         labels: labels,
@@ -163,14 +365,14 @@ function initCharts(container, labels, data, colors, state, currency) {
           data: data,
           backgroundColor: colors,
           borderWidth: 2,
-          borderColor: '#0F172A',
+          borderColor: '#0B0F19',
           hoverOffset: 6
         }]
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        cutout: '70%',
+        cutout: '72%',
         plugins: {
           legend: {
             position: 'bottom',
@@ -178,12 +380,16 @@ function initCharts(container, labels, data, colors, state, currency) {
               boxWidth: 10,
               color: '#94A3B8',
               font: { size: 11, family: 'Plus Jakarta Sans' },
-              padding: 12
+              padding: 10
             }
           },
           tooltip: {
             callbacks: {
-              label: (ctx) => ` ${ctx.label}: ${formatMoney(ctx.raw, currency)}`
+              label: (ctx) => {
+                const val = ctx.raw || 0;
+                const pct = totalSum > 0 ? ((val / totalSum) * 100).toFixed(1) : 0;
+                return ` ${ctx.label}: ${formatMoney(val, currency)} (${pct}%)`;
+              }
             }
           }
         }
@@ -194,7 +400,7 @@ function initCharts(container, labels, data, colors, state, currency) {
   // 2. Forecast Chart
   const forecastCtx = container.querySelector('#cashflow-forecast-chart');
   if (forecastCtx) {
-    if (chartInstance2) chartInstance2.destroy();
+    if (forecastChartInstance) forecastChartInstance.destroy();
 
     const liquidSavings = state.accounts
       .filter(a => a.type !== 'credit' && a.balance > 0)
@@ -203,7 +409,7 @@ function initCharts(container, labels, data, colors, state, currency) {
     const recurring = state.transactions.filter(t => t.isRecurring);
     const forecastPoints = FinancialEngine.projectCashflow(liquidSavings, recurring, 30);
 
-    chartInstance2 = new Chart(forecastCtx, {
+    forecastChartInstance = new Chart(forecastCtx, {
       type: 'line',
       data: {
         labels: forecastPoints.filter((_, i) => i % 5 === 0).map(p => p.displayDate),
@@ -246,4 +452,42 @@ function initCharts(container, labels, data, colors, state, currency) {
       }
     });
   }
+}
+
+function exportDetailedReportToCSV(report, currency) {
+  const headers = ['Tipo', 'Categoría', 'Monto Total', 'Porcentaje (%)', 'Cantidad de Operaciones', 'Ticket Promedio'];
+  const rows = [];
+
+  report.expenseBreakdown.forEach(item => {
+    rows.push([
+      '"Gasto"',
+      `"${item.name.replace(/"/g, '""')}"`,
+      item.amount,
+      `"${item.percentage}%"`,
+      item.count,
+      item.avgTicket
+    ].join(','));
+  });
+
+  report.incomeBreakdown.forEach(item => {
+    rows.push([
+      '"Ingreso"',
+      `"${item.name.replace(/"/g, '""')}"`,
+      item.amount,
+      `"${item.percentage}%"`,
+      item.count,
+      item.avgTicket
+    ].join(','));
+  });
+
+  const csvContent = '\uFEFF' + [headers.join(','), ...rows].join('\r\n');
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.setAttribute('href', url);
+  link.setAttribute('download', `FinanzPro_Reporte_Detallado_${new Date().toISOString().slice(0, 10)}.csv`);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
 }
