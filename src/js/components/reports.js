@@ -1,4 +1,4 @@
-// Analytics & Financial Reports Component - Detailed Category Breakdown & Drilldown
+// Analytics & Financial Reports Component - Detailed Category Breakdown & Interactive Drilldown
 import { store } from '../state.js';
 import { FinancialEngine } from '../financialEngine.js';
 import { formatMoney, formatCompactNumber, formatDate } from '../utils/currency.js';
@@ -9,8 +9,44 @@ let forecastChartInstance = null;
 
 let currentTab = 'expense'; // 'expense' | 'income' | 'flow'
 let currentPeriod = 'this_month'; // 'this_month' | 'prev_month' | 'last_3_months' | 'all'
+let expandedCategories = new Set(); // Tracks which categories have their inline drawer open
+
+// Global Drilldown Modal DOM elements
+let drilldownBackdrop = null;
+let drilldownSheet = null;
+
+function initDrilldownDOM() {
+  if (drilldownBackdrop && drilldownSheet) return;
+
+  drilldownBackdrop = document.getElementById('report-drilldown-backdrop');
+  if (!drilldownBackdrop) {
+    drilldownBackdrop = document.createElement('div');
+    drilldownBackdrop.id = 'report-drilldown-backdrop';
+    drilldownBackdrop.className = 'bottom-sheet-backdrop';
+    document.body.appendChild(drilldownBackdrop);
+  }
+
+  drilldownSheet = document.getElementById('report-drilldown-sheet');
+  if (!drilldownSheet) {
+    drilldownSheet = document.createElement('div');
+    drilldownSheet.id = 'report-drilldown-sheet';
+    drilldownSheet.className = 'bottom-sheet p-5 space-y-4 max-h-[85vh] overflow-hidden flex flex-col';
+    document.body.appendChild(drilldownSheet);
+  }
+
+  drilldownBackdrop.onclick = closeDrilldownModal;
+}
+
+function closeDrilldownModal() {
+  if (drilldownBackdrop && drilldownSheet) {
+    drilldownBackdrop.classList.remove('active');
+    drilldownSheet.classList.remove('active');
+  }
+}
 
 export function renderReports(container) {
+  initDrilldownDOM();
+
   const state = store.getState();
   const currency = state.settings.currency;
   const hideBalances = state.settings.hideBalances;
@@ -60,7 +96,7 @@ export function renderReports(container) {
       <div class="flex items-center justify-between px-3 py-2 bg-indigo-950/40 border border-indigo-800/30 rounded-2xl text-[11px] text-slate-300">
         <span class="flex items-center gap-1.5">
           <i data-lucide="clock" class="w-3.5 h-3.5 text-indigo-400"></i>
-          <span>Horario sincronizado: <strong class="text-indigo-300 font-mono">GMT-3</strong></span>
+          <span>Horario: <strong class="text-indigo-300 font-mono">GMT-3</strong></span>
         </span>
         <span class="flex items-center gap-1 text-emerald-400">
           <i data-lucide="shield-check" class="w-3.5 h-3.5"></i> Datos 100% seguros
@@ -228,16 +264,20 @@ export function renderReports(container) {
           `}
         </div>
 
-        <!-- DETAILED CATEGORY LIST: MONTO + PORCENTAJE + BARRA + CLICK PARA VER MOVIMIENTOS -->
+        <!-- DETAILED CATEGORY LIST SECTION -->
         <div class="space-y-3">
-          <div class="flex items-center justify-between px-1">
-            <div>
-              <h3 class="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
-                <i data-lucide="list-ordered" class="w-4 h-4 text-indigo-400"></i> Desglose Detallado por Categoría
-              </h3>
-              <span class="text-[10px] text-slate-500">Toca cualquier categoría para ver los gastos detallados</span>
+          <!-- Highly visible instruction banner -->
+          <div class="p-3.5 bg-gradient-to-r from-indigo-950/80 via-slate-900/90 to-indigo-950/80 border-2 border-indigo-500/40 rounded-2xl shadow-lg flex items-center justify-between">
+            <div class="flex items-center gap-2.5">
+              <div class="w-8 h-8 rounded-xl bg-indigo-600/30 text-indigo-400 flex items-center justify-center shrink-0">
+                <i data-lucide="mouse-pointer-click" class="w-4 h-4"></i>
+              </div>
+              <div>
+                <h3 class="text-xs font-extrabold text-slate-100 uppercase tracking-wider">Desglose Detallado por Categoría</h3>
+                <p class="text-[11px] text-indigo-300">Toca cualquier botón o tarjeta para ver sus movimientos individuales</p>
+              </div>
             </div>
-            <span class="text-[11px] text-indigo-400 font-semibold bg-indigo-500/10 px-2 py-0.5 rounded-lg border border-indigo-500/20">
+            <span class="text-[10px] bg-indigo-500/30 text-indigo-200 px-2 py-0.5 rounded-full font-bold font-mono border border-indigo-400/30">
               Interactivo
             </span>
           </div>
@@ -246,7 +286,11 @@ export function renderReports(container) {
             <div class="p-8 text-center bg-slate-900/60 rounded-3xl border border-slate-800 text-slate-500 text-xs">
               No se encontraron registros para mostrar.
             </div>
-          ` : activeBreakdown.map((item, idx) => {
+          ` : activeBreakdown.map((item) => {
+            const isExpanded = expandedCategories.has(item.categoryId);
+            const txs = item.transactions || [];
+            const isIncome = currentTab === 'income';
+
             let bucketBadge = '';
             if (currentTab === 'expense') {
               if (item.bucket === 'needs') bucketBadge = '<span class="text-[9px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 font-semibold">Necesidad (50%)</span>';
@@ -255,11 +299,12 @@ export function renderReports(container) {
             }
 
             return `
-              <div data-cat-id="${item.categoryId}" class="category-card-interactive card-elevated p-4 bg-slate-900/90 border border-slate-800/90 hover:border-indigo-500/60 active:scale-[0.98] transition-all cursor-pointer space-y-2.5">
-                <!-- Top Row: Icon + Name + Percentage + Amount -->
-                <div class="flex items-center justify-between">
+              <div class="category-card-container card-elevated p-4 bg-slate-900/90 border ${isExpanded ? 'border-indigo-500 shadow-lg shadow-indigo-950/50' : 'border-slate-800/90'} transition-all space-y-3">
+                
+                <!-- Category Summary Row -->
+                <div class="flex items-center justify-between cursor-pointer category-header-clickable" data-cat-id="${item.categoryId}">
                   <div class="flex items-center gap-3">
-                    <div class="w-10 h-10 rounded-2xl flex items-center justify-center text-white shrink-0 shadow-sm" style="background: ${item.color}25; color: ${item.color}">
+                    <div class="w-11 h-11 rounded-2xl flex items-center justify-center text-white shrink-0 shadow-sm" style="background: ${item.color}25; color: ${item.color}">
                       <i data-lucide="${item.icon || 'tag'}" class="w-5 h-5"></i>
                     </div>
                     <div>
@@ -276,32 +321,88 @@ export function renderReports(container) {
                   <!-- Percentage & Total Amount -->
                   <div class="text-right">
                     <div class="flex items-baseline justify-end gap-1.5">
-                      <span class="text-sm font-black num-mono ${currentTab === 'income' ? 'text-emerald-400' : 'text-rose-400'}">
+                      <span class="text-sm font-black num-mono ${isIncome ? 'text-emerald-400' : 'text-rose-400'}">
                         ${mask(formatMoney(item.amount, currency))}
                       </span>
-                      <span class="text-xs font-black font-mono px-2 py-0.5 rounded-lg text-white" style="background: ${item.color}35; color: ${item.color}">
+                      <span class="text-xs font-black font-mono px-2 py-0.5 rounded-lg text-white shadow-sm" style="background: ${item.color}35; color: ${item.color}">
                         ${item.percentage}%
                       </span>
                     </div>
                     <span class="text-[10px] text-slate-500 block mt-0.5">
-                      del total de ${currentTab === 'income' ? 'ingresos' : 'gastos'}
+                      del total de ${isIncome ? 'ingresos' : 'gastos'}
                     </span>
                   </div>
                 </div>
 
                 <!-- Progress Bar matching Category Color -->
-                <div class="w-full h-2.5 bg-slate-950 rounded-full overflow-hidden p-0.5 border border-slate-800">
+                <div class="w-full h-2 bg-slate-950 rounded-full overflow-hidden p-0.5 border border-slate-800/80">
                   <div class="h-full rounded-full transition-all duration-700" style="width: ${Math.max(3, item.percentage)}%; background-color: ${item.color}"></div>
                 </div>
 
-                <!-- Interactive CTA Pill -->
-                <div class="flex items-center justify-between pt-1 border-t border-slate-800/60 text-[11px] text-indigo-400 font-semibold">
-                  <span class="flex items-center gap-1 text-slate-400 hover:text-indigo-300">
-                    <i data-lucide="eye" class="w-3.5 h-3.5 text-indigo-400"></i>
-                    <span>Toca para ver los <strong>${item.count}</strong> movimientos</span>
-                  </span>
-                  <i data-lucide="chevron-right" class="w-4 h-4 text-slate-500"></i>
+                <!-- PROMINENT INTERACTIVE BUTTON (UNMISTAKABLE) -->
+                <div class="pt-1 flex items-center gap-2">
+                  <button type="button" data-cat-id="${item.categoryId}" class="btn-toggle-accordion flex-1 py-2.5 px-3 rounded-xl bg-indigo-600/15 hover:bg-indigo-600/30 text-indigo-300 text-xs font-bold border-2 border-indigo-500/40 flex items-center justify-between transition-all active:scale-[0.98]">
+                    <span class="flex items-center gap-2">
+                      <i data-lucide="${isExpanded ? 'chevron-up' : 'list-ordered'}" class="w-4 h-4 text-indigo-400"></i>
+                      <span>${isExpanded ? 'Ocultar movimientos' : `Ver los ${item.count} movimientos`}</span>
+                    </span>
+                    <span class="text-[10px] bg-indigo-500/25 text-indigo-200 px-2 py-0.5 rounded font-mono font-bold">
+                      ${isExpanded ? 'Plegar ▲' : 'Desplegar ▼'}
+                    </span>
+                  </button>
+
+                  <button type="button" data-cat-id="${item.categoryId}" class="btn-open-modal-sheet p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition" title="Abrir en pantalla completa">
+                    <i data-lucide="maximize-2" class="w-4 h-4 text-indigo-400"></i>
+                  </button>
                 </div>
+
+                <!-- INLINE ACCORDION DRAWER WITH TRANSACTIONS LIST -->
+                ${isExpanded ? `
+                  <div class="pt-3 border-t border-slate-800/90 space-y-2 animate-fadeIn">
+                    <div class="flex items-center justify-between text-[11px] font-bold text-slate-400 pb-1">
+                      <span>Movimientos en ${periodNames[currentPeriod]} (GMT-3):</span>
+                      <span class="text-indigo-400">${txs.length} registros</span>
+                    </div>
+
+                    ${txs.length === 0 ? `
+                      <p class="text-center text-xs text-slate-500 py-3">No hay movimientos registrados.</p>
+                    ` : txs.map(t => {
+                      const acc = accountMap.get(t.accountId);
+                      const accName = acc?.name || 'Cuenta Principal';
+                      const formattedDate = formatDate(t.date, 'datetime');
+
+                      return `
+                        <div class="p-3 rounded-2xl bg-slate-950/80 border border-slate-800/80 flex items-center justify-between hover:border-slate-700 transition">
+                          <div class="flex items-center gap-2.5">
+                            <div class="w-8 h-8 rounded-xl bg-slate-800/80 flex items-center justify-center text-slate-400 shrink-0">
+                              <i data-lucide="${t.isRecurring ? 'repeat' : 'receipt'}" class="w-4 h-4 ${t.isRecurring ? 'text-indigo-400' : 'text-slate-400'}"></i>
+                            </div>
+                            <div>
+                              <div class="flex items-center gap-1.5">
+                                <span class="text-xs font-extrabold text-slate-100">${t.merchant || item.name}</span>
+                                ${t.isRecurring ? '<span class="text-[9px] px-1 py-0.2 rounded bg-indigo-500/20 text-indigo-300 font-bold">Fijo</span>' : ''}
+                              </div>
+                              <span class="text-[10px] text-slate-400 font-mono block mt-0.5">
+                                ${formattedDate}
+                              </span>
+                              <span class="text-[10px] text-slate-500 flex items-center gap-1 mt-0.5">
+                                <i data-lucide="wallet" class="w-3 h-3 text-cyan-400"></i> ${accName}
+                              </span>
+                              ${t.note ? `<p class="text-[10px] text-slate-400 italic mt-0.5">"${t.note}"</p>` : ''}
+                            </div>
+                          </div>
+
+                          <div class="text-right shrink-0">
+                            <span class="text-xs font-black num-mono block ${isIncome ? 'text-emerald-400' : 'text-rose-400'}">
+                              ${isIncome ? '+' : '-'}${mask(formatMoney(t.amount, currency))}
+                            </span>
+                          </div>
+                        </div>
+                      `;
+                    }).join('')}
+                  </div>
+                ` : ''}
+
               </div>
             `;
           }).join('')}
@@ -325,33 +426,13 @@ export function renderReports(container) {
       </div>
 
     </div>
-
-    <!-- Category Drilldown Bottom Sheet Modal -->
-    <div id="modal-category-drilldown" class="bottom-sheet-backdrop">
-      <div class="bottom-sheet p-5 space-y-4 max-h-[85vh] overflow-hidden flex flex-col">
-        <!-- Modal Header injected dynamically -->
-        <div id="drilldown-header" class="border-b border-slate-800 pb-3"></div>
-
-        <!-- Transaction list scrollable container -->
-        <div id="drilldown-tx-list" class="overflow-y-auto flex-1 space-y-2.5 pr-1 max-h-[55vh]"></div>
-
-        <!-- Modal Footer Actions -->
-        <div class="pt-2 border-t border-slate-800 flex items-center gap-2">
-          <button id="btn-close-drilldown" class="flex-1 py-3 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold transition">
-            Cerrar
-          </button>
-          <button id="btn-drilldown-to-ledger" class="flex-1 py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-lg shadow-indigo-600/30 transition flex items-center justify-center gap-1.5">
-            <i data-lucide="receipt-text" class="w-4 h-4"></i> Ir al Libro Diario
-          </button>
-        </div>
-      </div>
-    </div>
   `;
 
   // Attach Period button listeners
   container.querySelectorAll('.period-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
       currentPeriod = e.currentTarget.dataset.period;
+      expandedCategories.clear();
       renderReports(container);
     });
   });
@@ -360,36 +441,35 @@ export function renderReports(container) {
   container.querySelectorAll('.tab-report-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
       currentTab = e.currentTarget.dataset.tab;
+      expandedCategories.clear();
       renderReports(container);
     });
   });
 
-  // Attach Interactive Category Drilldown Handlers
-  const modalDrilldown = container.querySelector('#modal-category-drilldown');
-  const sheetDrilldown = modalDrilldown?.querySelector('.bottom-sheet');
-  const btnCloseDrilldown = container.querySelector('#btn-close-drilldown');
+  // Toggle Accordion Click Listeners (both button and category header)
+  container.querySelectorAll('.btn-toggle-accordion, .category-header-clickable').forEach(el => {
+    el.addEventListener('click', (e) => {
+      const catId = e.currentTarget.dataset.catId;
+      if (!catId) return;
 
-  const closeDrilldown = () => {
-    if (modalDrilldown && sheetDrilldown) {
-      modalDrilldown.classList.remove('active');
-      sheetDrilldown.classList.remove('active');
-    }
-  };
-
-  if (btnCloseDrilldown) btnCloseDrilldown.addEventListener('click', closeDrilldown);
-  if (modalDrilldown) {
-    modalDrilldown.addEventListener('click', (e) => {
-      if (e.target === modalDrilldown) closeDrilldown();
+      if (expandedCategories.has(catId)) {
+        expandedCategories.delete(catId);
+      } else {
+        expandedCategories.add(catId);
+      }
+      renderReports(container);
     });
-  }
+  });
 
-  container.querySelectorAll('.category-card-interactive').forEach(card => {
-    card.addEventListener('click', (e) => {
+  // Fullscreen Bottom Sheet Modal Click Listener
+  container.querySelectorAll('.btn-open-modal-sheet').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
       const catId = e.currentTarget.dataset.catId;
       const catData = activeBreakdown.find(c => c.categoryId === catId);
       if (!catData) return;
 
-      openCategoryDrilldown(catData, report, currency, mask, accountMap, container, closeDrilldown);
+      openDrilldownModal(catData, report, currency, mask, accountMap, periodNames[currentPeriod]);
     });
   });
 
@@ -419,20 +499,15 @@ export function renderReports(container) {
   }
 }
 
-function openCategoryDrilldown(catData, report, currency, mask, accountMap, container, closeDrilldown) {
-  const modal = container.querySelector('#modal-category-drilldown');
-  const sheet = modal?.querySelector('.bottom-sheet');
-  const headerContainer = container.querySelector('#drilldown-header');
-  const listContainer = container.querySelector('#drilldown-tx-list');
-  const btnLedger = container.querySelector('#btn-drilldown-to-ledger');
-
-  if (!modal || !sheet || !headerContainer || !listContainer) return;
+function openDrilldownModal(catData, report, currency, mask, accountMap, periodName) {
+  if (!drilldownBackdrop || !drilldownSheet) return;
 
   const txs = catData.transactions || [];
   const isIncome = currentTab === 'income';
 
-  headerContainer.innerHTML = `
-    <div class="flex items-center justify-between">
+  drilldownSheet.innerHTML = `
+    <!-- Modal Header -->
+    <div class="border-b border-slate-800 pb-3 flex items-center justify-between">
       <div class="flex items-center gap-3">
         <div class="w-12 h-12 rounded-2xl flex items-center justify-center text-white shrink-0 shadow-md" style="background: ${catData.color}25; color: ${catData.color}">
           <i data-lucide="${catData.icon || 'tag'}" class="w-6 h-6"></i>
@@ -448,74 +523,79 @@ function openCategoryDrilldown(catData, report, currency, mask, accountMap, cont
         <span class="text-base font-black num-mono block ${isIncome ? 'text-emerald-400' : 'text-rose-400'}">
           ${mask(formatMoney(catData.amount, currency))}
         </span>
-        <span class="text-[10px] text-slate-500 block uppercase font-semibold">Total gastado</span>
+        <span class="text-[10px] text-slate-500 block uppercase font-semibold">${periodName}</span>
       </div>
+    </div>
+
+    <!-- Scrollable Transactions List -->
+    <div class="overflow-y-auto flex-1 space-y-2.5 pr-1 max-h-[55vh]">
+      ${txs.length === 0 ? `
+        <div class="p-8 text-center bg-slate-900/60 rounded-2xl border border-slate-800 text-slate-500 text-xs">
+          No se encontraron movimientos registrados en este período.
+        </div>
+      ` : txs.map(t => {
+        const acc = accountMap.get(t.accountId);
+        const accName = acc?.name || 'Cuenta Principal';
+        const formattedDate = formatDate(t.date, 'datetime');
+
+        return `
+          <div class="p-3.5 rounded-2xl bg-slate-900/90 border border-slate-800 hover:border-slate-700 transition flex items-center justify-between">
+            <div class="flex items-center gap-2.5">
+              <div class="w-8 h-8 rounded-xl bg-slate-800 flex items-center justify-center text-slate-300 shrink-0">
+                <i data-lucide="${t.isRecurring ? 'repeat' : 'receipt'}" class="w-4 h-4 ${t.isRecurring ? 'text-indigo-400' : 'text-slate-400'}"></i>
+              </div>
+              <div>
+                <div class="flex items-center gap-1.5">
+                  <h4 class="text-xs font-bold text-slate-200 line-clamp-1">${t.merchant || catData.name}</h4>
+                  ${t.isRecurring ? '<span class="text-[9px] px-1 py-0.2 rounded bg-indigo-500/20 text-indigo-300 font-bold">Fijo</span>' : ''}
+                </div>
+                <span class="text-[10px] text-slate-400 font-mono block mt-0.5">
+                  ${formattedDate}
+                </span>
+                <span class="text-[10px] text-slate-500 flex items-center gap-1 mt-0.5">
+                  <i data-lucide="wallet" class="w-3 h-3 text-cyan-400"></i> ${accName}
+                </span>
+                ${t.note ? `<p class="text-[10px] text-slate-400 italic mt-0.5 line-clamp-1">"${t.note}"</p>` : ''}
+              </div>
+            </div>
+
+            <div class="text-right shrink-0">
+              <span class="text-xs font-extrabold num-mono block ${isIncome ? 'text-emerald-400' : 'text-rose-400'}">
+                ${isIncome ? '+' : '-'}${mask(formatMoney(t.amount, currency))}
+              </span>
+            </div>
+          </div>
+        `;
+      }).join('')}
+    </div>
+
+    <!-- Modal Footer Actions -->
+    <div class="pt-2 border-t border-slate-800 flex items-center gap-2">
+      <button id="btn-close-modal-sheet" class="flex-1 py-3 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold transition">
+        Cerrar
+      </button>
+      <button id="btn-modal-to-ledger" class="flex-1 py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-lg shadow-indigo-600/30 transition flex items-center justify-center gap-1.5">
+        <i data-lucide="receipt-text" class="w-4 h-4"></i> Ir al Libro Diario
+      </button>
     </div>
   `;
 
-  if (txs.length === 0) {
-    listContainer.innerHTML = `
-      <div class="p-8 text-center bg-slate-900/60 rounded-2xl border border-slate-800 text-slate-500 text-xs">
-        No se encontraron movimientos individuales para esta categoría en el período seleccionado.
-      </div>
-    `;
-  } else {
-    listContainer.innerHTML = txs.map(t => {
-      const acc = accountMap.get(t.accountId);
-      const accName = acc?.name || 'Cuenta Principal';
-      const formattedDate = formatDate(t.date, 'datetime');
+  const btnClose = drilldownSheet.querySelector('#btn-close-modal-sheet');
+  if (btnClose) btnClose.onclick = closeDrilldownModal;
 
-      return `
-        <div class="p-3.5 rounded-2xl bg-slate-900/90 border border-slate-800 hover:border-slate-700 transition flex items-center justify-between">
-          <div class="flex items-center gap-2.5">
-            <div class="w-8 h-8 rounded-xl bg-slate-800 flex items-center justify-center text-slate-300 shrink-0">
-              <i data-lucide="${t.isRecurring ? 'repeat' : 'receipt'}" class="w-4 h-4 ${t.isRecurring ? 'text-indigo-400' : 'text-slate-400'}"></i>
-            </div>
-            <div>
-              <div class="flex items-center gap-1.5">
-                <h4 class="text-xs font-bold text-slate-200 line-clamp-1">${t.merchant || catData.name}</h4>
-                ${t.isRecurring ? '<span class="text-[9px] px-1 py-0.2 rounded bg-indigo-500/20 text-indigo-300 font-bold">Fijo</span>' : ''}
-              </div>
-              <span class="text-[10px] text-slate-400 block mt-0.5 font-mono">
-                ${formattedDate}
-              </span>
-              <span class="text-[10px] text-slate-500 flex items-center gap-1 mt-0.5">
-                <i data-lucide="wallet" class="w-3 h-3"></i> ${accName}
-              </span>
-              ${t.note ? `<p class="text-[10px] text-slate-400 italic mt-0.5 line-clamp-1">"${t.note}"</p>` : ''}
-              ${(t.tags && t.tags.length > 0) ? `
-                <div class="flex items-center gap-1 mt-1">
-                  ${t.tags.map(tag => `<span class="text-[9px] bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded font-mono">#${tag}</span>`).join('')}
-                </div>
-              ` : ''}
-            </div>
-          </div>
-
-          <div class="text-right shrink-0">
-            <span class="text-xs font-extrabold num-mono block ${isIncome ? 'text-emerald-400' : 'text-rose-400'}">
-              ${isIncome ? '+' : '-'}${mask(formatMoney(t.amount, currency))}
-            </span>
-          </div>
-        </div>
-      `;
-    }).join('');
-  }
-
-  // Bind Ledger Button
+  const btnLedger = drilldownSheet.querySelector('#btn-modal-to-ledger');
   if (btnLedger) {
     btnLedger.onclick = () => {
-      closeDrilldown();
-      if (window.router) {
-        window.router.navigate('transactions');
-      }
+      closeDrilldownModal();
+      if (window.router) window.router.navigate('transactions');
     };
   }
 
-  modal.classList.add('active');
-  sheet.classList.add('active');
+  drilldownBackdrop.classList.add('active');
+  drilldownSheet.classList.add('active');
 
   if (window.lucide) {
-    window.lucide.createIcons({ root: modal });
+    window.lucide.createIcons({ root: drilldownSheet });
   }
 }
 

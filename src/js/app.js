@@ -7,7 +7,7 @@ import { renderAccounts } from './components/accounts.js';
 import { renderBudgets } from './components/budgets.js';
 import { renderGoals } from './components/goals.js';
 import { renderDebts } from './components/debts.js';
-import { renderReports } from './components/reports.js';
+import { renderReports } from './components/reports.js?v=2.1.0';
 import { renderSettings } from './components/settings.js';
 import { renderCategories } from './components/categories.js';
 
