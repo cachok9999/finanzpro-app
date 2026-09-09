@@ -1,7 +1,7 @@
-// Analytics & Financial Reports Component - Detailed Category Breakdown & Insights
+// Analytics & Financial Reports Component - Detailed Category Breakdown & Drilldown
 import { store } from '../state.js';
 import { FinancialEngine } from '../financialEngine.js';
-import { formatMoney, formatCompactNumber } from '../utils/currency.js';
+import { formatMoney, formatCompactNumber, formatDate } from '../utils/currency.js';
 import { exportToCSV, exportFullBackupJSON } from '../utils/exporter.js';
 
 let chartInstance = null;
@@ -19,6 +19,7 @@ export function renderReports(container) {
   // Generate detailed report data based on current period
   const report = FinancialEngine.generateDetailedReport(state.transactions, state.categories, currentPeriod);
   const netWorthData = FinancialEngine.calculateNetWorth(state.accounts);
+  const accountMap = new Map(state.accounts.map(a => [a.id, a]));
 
   const activeBreakdown = currentTab === 'income' ? report.incomeBreakdown : report.expenseBreakdown;
   const currentTotal = currentTab === 'income' ? report.totalIncome : report.totalExpense;
@@ -27,6 +28,13 @@ export function renderReports(container) {
   const labels = activeBreakdown.map(c => c.name);
   const chartData = activeBreakdown.map(c => c.amount);
   const colors = activeBreakdown.map(c => c.color);
+
+  const periodNames = {
+    this_month: 'Este Mes',
+    prev_month: 'Mes Anterior',
+    last_3_months: 'Últimos 3 Meses',
+    all: 'Histórico Completo'
+  };
 
   container.innerHTML = `
     <div class="space-y-4 pb-28 animate-fadeIn">
@@ -79,7 +87,7 @@ export function renderReports(container) {
       <div class="gradient-card-dark rounded-3xl p-5 shadow-2xl relative overflow-hidden">
         <div class="flex items-center justify-between text-xs text-slate-400 mb-1">
           <span class="font-bold uppercase tracking-wide flex items-center gap-1.5">
-            <i data-lucide="scale" class="w-4 h-4 text-indigo-400"></i> Resumen del Período
+            <i data-lucide="scale" class="w-4 h-4 text-indigo-400"></i> Resumen: ${periodNames[currentPeriod]}
           </span>
           <span class="bg-indigo-500/20 text-indigo-300 px-2.5 py-0.5 rounded-full font-mono text-[11px]">
             ${currency}
@@ -220,13 +228,18 @@ export function renderReports(container) {
           `}
         </div>
 
-        <!-- DETAILED CATEGORY LIST: MONTO + PORCENTAJE + BARRA + TICKETS -->
+        <!-- DETAILED CATEGORY LIST: MONTO + PORCENTAJE + BARRA + CLICK PARA VER MOVIMIENTOS -->
         <div class="space-y-3">
           <div class="flex items-center justify-between px-1">
-            <h3 class="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
-              <i data-lucide="list-ordered" class="w-4 h-4 text-indigo-400"></i> Desglose Detallado por Categoría
-            </h3>
-            <span class="text-[11px] text-slate-500">Ordenado de mayor a menor</span>
+            <div>
+              <h3 class="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                <i data-lucide="list-ordered" class="w-4 h-4 text-indigo-400"></i> Desglose Detallado por Categoría
+              </h3>
+              <span class="text-[10px] text-slate-500">Toca cualquier categoría para ver los gastos detallados</span>
+            </div>
+            <span class="text-[11px] text-indigo-400 font-semibold bg-indigo-500/10 px-2 py-0.5 rounded-lg border border-indigo-500/20">
+              Interactivo
+            </span>
           </div>
 
           ${activeBreakdown.length === 0 ? `
@@ -242,7 +255,7 @@ export function renderReports(container) {
             }
 
             return `
-              <div class="card-elevated p-4 bg-slate-900/90 border border-slate-800/90 hover:border-slate-700 transition space-y-2.5">
+              <div data-cat-id="${item.categoryId}" class="category-card-interactive card-elevated p-4 bg-slate-900/90 border border-slate-800/90 hover:border-indigo-500/60 active:scale-[0.98] transition-all cursor-pointer space-y-2.5">
                 <!-- Top Row: Icon + Name + Percentage + Amount -->
                 <div class="flex items-center justify-between">
                   <div class="flex items-center gap-3">
@@ -280,6 +293,15 @@ export function renderReports(container) {
                 <div class="w-full h-2.5 bg-slate-950 rounded-full overflow-hidden p-0.5 border border-slate-800">
                   <div class="h-full rounded-full transition-all duration-700" style="width: ${Math.max(3, item.percentage)}%; background-color: ${item.color}"></div>
                 </div>
+
+                <!-- Interactive CTA Pill -->
+                <div class="flex items-center justify-between pt-1 border-t border-slate-800/60 text-[11px] text-indigo-400 font-semibold">
+                  <span class="flex items-center gap-1 text-slate-400 hover:text-indigo-300">
+                    <i data-lucide="eye" class="w-3.5 h-3.5 text-indigo-400"></i>
+                    <span>Toca para ver los <strong>${item.count}</strong> movimientos</span>
+                  </span>
+                  <i data-lucide="chevron-right" class="w-4 h-4 text-slate-500"></i>
+                </div>
               </div>
             `;
           }).join('')}
@@ -303,6 +325,27 @@ export function renderReports(container) {
       </div>
 
     </div>
+
+    <!-- Category Drilldown Bottom Sheet Modal -->
+    <div id="modal-category-drilldown" class="bottom-sheet-backdrop">
+      <div class="bottom-sheet p-5 space-y-4 max-h-[85vh] overflow-hidden flex flex-col">
+        <!-- Modal Header injected dynamically -->
+        <div id="drilldown-header" class="border-b border-slate-800 pb-3"></div>
+
+        <!-- Transaction list scrollable container -->
+        <div id="drilldown-tx-list" class="overflow-y-auto flex-1 space-y-2.5 pr-1 max-h-[55vh]"></div>
+
+        <!-- Modal Footer Actions -->
+        <div class="pt-2 border-t border-slate-800 flex items-center gap-2">
+          <button id="btn-close-drilldown" class="flex-1 py-3 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold transition">
+            Cerrar
+          </button>
+          <button id="btn-drilldown-to-ledger" class="flex-1 py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-lg shadow-indigo-600/30 transition flex items-center justify-center gap-1.5">
+            <i data-lucide="receipt-text" class="w-4 h-4"></i> Ir al Libro Diario
+          </button>
+        </div>
+      </div>
+    </div>
   `;
 
   // Attach Period button listeners
@@ -318,6 +361,35 @@ export function renderReports(container) {
     btn.addEventListener('click', (e) => {
       currentTab = e.currentTarget.dataset.tab;
       renderReports(container);
+    });
+  });
+
+  // Attach Interactive Category Drilldown Handlers
+  const modalDrilldown = container.querySelector('#modal-category-drilldown');
+  const sheetDrilldown = modalDrilldown?.querySelector('.bottom-sheet');
+  const btnCloseDrilldown = container.querySelector('#btn-close-drilldown');
+
+  const closeDrilldown = () => {
+    if (modalDrilldown && sheetDrilldown) {
+      modalDrilldown.classList.remove('active');
+      sheetDrilldown.classList.remove('active');
+    }
+  };
+
+  if (btnCloseDrilldown) btnCloseDrilldown.addEventListener('click', closeDrilldown);
+  if (modalDrilldown) {
+    modalDrilldown.addEventListener('click', (e) => {
+      if (e.target === modalDrilldown) closeDrilldown();
+    });
+  }
+
+  container.querySelectorAll('.category-card-interactive').forEach(card => {
+    card.addEventListener('click', (e) => {
+      const catId = e.currentTarget.dataset.catId;
+      const catData = activeBreakdown.find(c => c.categoryId === catId);
+      if (!catData) return;
+
+      openCategoryDrilldown(catData, report, currency, mask, accountMap, container, closeDrilldown);
     });
   });
 
@@ -344,6 +416,106 @@ export function renderReports(container) {
 
   if (window.lucide) {
     window.lucide.createIcons({ root: container });
+  }
+}
+
+function openCategoryDrilldown(catData, report, currency, mask, accountMap, container, closeDrilldown) {
+  const modal = container.querySelector('#modal-category-drilldown');
+  const sheet = modal?.querySelector('.bottom-sheet');
+  const headerContainer = container.querySelector('#drilldown-header');
+  const listContainer = container.querySelector('#drilldown-tx-list');
+  const btnLedger = container.querySelector('#btn-drilldown-to-ledger');
+
+  if (!modal || !sheet || !headerContainer || !listContainer) return;
+
+  const txs = catData.transactions || [];
+  const isIncome = currentTab === 'income';
+
+  headerContainer.innerHTML = `
+    <div class="flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-12 h-12 rounded-2xl flex items-center justify-center text-white shrink-0 shadow-md" style="background: ${catData.color}25; color: ${catData.color}">
+          <i data-lucide="${catData.icon || 'tag'}" class="w-6 h-6"></i>
+        </div>
+        <div>
+          <h3 class="text-sm font-extrabold text-slate-100">${catData.name}</h3>
+          <span class="text-[11px] text-slate-400 block mt-0.5">
+            ${catData.count} movimientos • <strong class="text-indigo-300 font-mono">${catData.percentage}% del total</strong>
+          </span>
+        </div>
+      </div>
+      <div class="text-right">
+        <span class="text-base font-black num-mono block ${isIncome ? 'text-emerald-400' : 'text-rose-400'}">
+          ${mask(formatMoney(catData.amount, currency))}
+        </span>
+        <span class="text-[10px] text-slate-500 block uppercase font-semibold">Total gastado</span>
+      </div>
+    </div>
+  `;
+
+  if (txs.length === 0) {
+    listContainer.innerHTML = `
+      <div class="p-8 text-center bg-slate-900/60 rounded-2xl border border-slate-800 text-slate-500 text-xs">
+        No se encontraron movimientos individuales para esta categoría en el período seleccionado.
+      </div>
+    `;
+  } else {
+    listContainer.innerHTML = txs.map(t => {
+      const acc = accountMap.get(t.accountId);
+      const accName = acc?.name || 'Cuenta Principal';
+      const formattedDate = formatDate(t.date, 'datetime');
+
+      return `
+        <div class="p-3.5 rounded-2xl bg-slate-900/90 border border-slate-800 hover:border-slate-700 transition flex items-center justify-between">
+          <div class="flex items-center gap-2.5">
+            <div class="w-8 h-8 rounded-xl bg-slate-800 flex items-center justify-center text-slate-300 shrink-0">
+              <i data-lucide="${t.isRecurring ? 'repeat' : 'receipt'}" class="w-4 h-4 ${t.isRecurring ? 'text-indigo-400' : 'text-slate-400'}"></i>
+            </div>
+            <div>
+              <div class="flex items-center gap-1.5">
+                <h4 class="text-xs font-bold text-slate-200 line-clamp-1">${t.merchant || catData.name}</h4>
+                ${t.isRecurring ? '<span class="text-[9px] px-1 py-0.2 rounded bg-indigo-500/20 text-indigo-300 font-bold">Fijo</span>' : ''}
+              </div>
+              <span class="text-[10px] text-slate-400 block mt-0.5 font-mono">
+                ${formattedDate}
+              </span>
+              <span class="text-[10px] text-slate-500 flex items-center gap-1 mt-0.5">
+                <i data-lucide="wallet" class="w-3 h-3"></i> ${accName}
+              </span>
+              ${t.note ? `<p class="text-[10px] text-slate-400 italic mt-0.5 line-clamp-1">"${t.note}"</p>` : ''}
+              ${(t.tags && t.tags.length > 0) ? `
+                <div class="flex items-center gap-1 mt-1">
+                  ${t.tags.map(tag => `<span class="text-[9px] bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded font-mono">#${tag}</span>`).join('')}
+                </div>
+              ` : ''}
+            </div>
+          </div>
+
+          <div class="text-right shrink-0">
+            <span class="text-xs font-extrabold num-mono block ${isIncome ? 'text-emerald-400' : 'text-rose-400'}">
+              ${isIncome ? '+' : '-'}${mask(formatMoney(t.amount, currency))}
+            </span>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  // Bind Ledger Button
+  if (btnLedger) {
+    btnLedger.onclick = () => {
+      closeDrilldown();
+      if (window.router) {
+        window.router.navigate('transactions');
+      }
+    };
+  }
+
+  modal.classList.add('active');
+  sheet.classList.add('active');
+
+  if (window.lucide) {
+    window.lucide.createIcons({ root: modal });
   }
 }
 

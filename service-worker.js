@@ -1,5 +1,5 @@
 // FinanzPro Service Worker - Offline First Caching
-const CACHE_NAME = 'finanzpro-v1.0.2';
+const CACHE_NAME = 'finanzpro-v1.0.3';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',

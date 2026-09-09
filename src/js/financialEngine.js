@@ -332,15 +332,17 @@ export class FinancialEngine {
       if (t.type === 'expense') {
         totalExpense += amt;
         const catId = t.categoryId || 'cat_otros';
-        if (!expenseAgg[catId]) expenseAgg[catId] = { amount: 0, count: 0 };
+        if (!expenseAgg[catId]) expenseAgg[catId] = { amount: 0, count: 0, transactions: [] };
         expenseAgg[catId].amount += amt;
         expenseAgg[catId].count += 1;
+        expenseAgg[catId].transactions.push(t);
       } else if (t.type === 'income') {
         totalIncome += amt;
         const catId = t.categoryId || 'cat_otros';
-        if (!incomeAgg[catId]) incomeAgg[catId] = { amount: 0, count: 0 };
+        if (!incomeAgg[catId]) incomeAgg[catId] = { amount: 0, count: 0, transactions: [] };
         incomeAgg[catId].amount += amt;
         incomeAgg[catId].count += 1;
+        incomeAgg[catId].transactions.push(t);
       }
     });
 
@@ -365,7 +367,8 @@ export class FinancialEngine {
           amount: data.amount,
           count: data.count,
           percentage,
-          avgTicket
+          avgTicket,
+          transactions: data.transactions || []
         };
       }).sort((a, b) => b.amount - a.amount);
     };
